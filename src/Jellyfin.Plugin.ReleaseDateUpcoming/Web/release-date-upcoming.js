@@ -137,8 +137,23 @@
         return new RegExp(`(^|\\D)${escapedNumber}(\\D|$)`).test(text);
     }
 
+    function episodeIdentity(episode) {
+        return episode.Id || `${episode.ParentIndexNumber || ''}-${episode.IndexNumber || ''}-${episode.Name || ''}`;
+    }
+
+    function findOverviewTarget(row) {
+        return row.querySelector([
+            '.listItemBodyText',
+            '.listItemBodyText-secondary',
+            '.itemOverview',
+            '.overview',
+            '.cardText-secondary'
+        ].join(', ')) || row.querySelector('.listItemBody, .cardText, .cardBox') || row;
+    }
+
     function addDateToRow(row, episode, date) {
-        if (row.getAttribute(processedAttribute) === episode.Id) {
+        const identity = episodeIdentity(episode);
+        if (row.getAttribute(processedAttribute) === identity) {
             return;
         }
 
@@ -148,9 +163,9 @@
         badge.className = pluginClass;
         badge.textContent = isFuture(date) ? `Releases ${formatDate(date)}` : `Premiered ${formatDate(date)}`;
 
-        const target = row.querySelector('.listItemBodyText, .secondary, .cardText-secondary, .overview, .listItemBody') || row;
-        target.appendChild(badge);
-        row.setAttribute(processedAttribute, episode.Id);
+        const target = findOverviewTarget(row);
+        target.insertBefore(badge, target.firstChild);
+        row.setAttribute(processedAttribute, identity);
     }
 
     function renderUpcoming(container, episodes) {
@@ -206,10 +221,12 @@
         style.id = 'release-date-upcoming-style';
         style.textContent = `
             .${pluginClass} {
-                margin-top: .35em;
+                display: block;
+                margin: 0 0 .35em;
                 color: var(--theme-primary-color, #00a4dc);
                 font-size: .92em;
                 line-height: 1.35;
+                font-weight: 500;
             }
             .${upcomingClass} {
                 margin: 1.5em 3.3% 0;

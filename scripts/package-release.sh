@@ -3,6 +3,7 @@ set -euo pipefail
 
 VERSION="${1:-1.0.0.0}"
 TARGET_ABI="${2:-10.11.0.0}"
+CHANGELOG="${3:-Initial release.}"
 GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-outofgravity/jellyfin-releasedate-upcoming}"
 PROJECT="src/Jellyfin.Plugin.ReleaseDateUpcoming/Jellyfin.Plugin.ReleaseDateUpcoming.csproj"
 OUT_DIR="dist/release-date-upcoming_${VERSION}"
@@ -35,12 +36,12 @@ CHECKSUM="$(md5sum "$ZIP_FILE" | awk '{print $1}')"
 SOURCE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/$(basename "$ZIP_FILE")"
 TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-python3 - "$VERSION" "$TARGET_ABI" "$SOURCE_URL" "$CHECKSUM" "$TIMESTAMP" <<'PY'
+python3 - "$VERSION" "$TARGET_ABI" "$SOURCE_URL" "$CHECKSUM" "$TIMESTAMP" "$CHANGELOG" <<'PY'
 import json
 import sys
 from pathlib import Path
 
-version, target_abi, source_url, checksum, timestamp = sys.argv[1:]
+version, target_abi, source_url, checksum, timestamp, changelog = sys.argv[1:]
 path = Path("manifest.json")
 manifest = json.loads(path.read_text(encoding="utf-8"))
 entry = manifest[0]
@@ -50,7 +51,7 @@ entry["versions"] = [
 ]
 entry["versions"].insert(0, {
     "version": version,
-    "changelog": "Initial release.",
+    "changelog": changelog,
     "targetAbi": target_abi,
     "sourceUrl": source_url,
     "checksum": checksum,
