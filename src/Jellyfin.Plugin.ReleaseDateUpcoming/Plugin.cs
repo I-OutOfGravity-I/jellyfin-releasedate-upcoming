@@ -46,7 +46,7 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>
     public override Guid Id => Guid.Parse("ab9f378f-32e9-4f10-a02e-f9ea5d3441b4");
 
     /// <inheritdoc />
-    public override string Description => "Shows episode premiere dates and upcoming episodes on season pages.";
+    public override string Description => "Shows episode premiere dates and season episode progress on season pages.";
 
     private void TryPatchIndexHtml()
     {

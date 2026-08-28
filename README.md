@@ -5,7 +5,7 @@ Native Jellyfin plugin that injects a small Jellyfin Web enhancement into `index
 On season detail pages it:
 
 - shows each episode's `PremiereDate` in the episode list
-- adds a compact `Upcoming episodes` section when the season metadata contains future or missing episodes with premiere dates
+- shows the highest available episode number over the last known season episode number near the top of the page
 
 ## Build
 

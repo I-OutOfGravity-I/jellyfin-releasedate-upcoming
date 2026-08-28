@@ -2,7 +2,8 @@
     'use strict';
 
     const pluginClass = 'release-date-upcoming';
-    const upcomingClass = 'release-date-upcoming-panel';
+    const seasonSummaryClass = 'release-date-upcoming-season-summary';
+    const legacyUpcomingClass = 'release-date-upcoming-panel';
     const processedAttribute = 'data-release-date-upcoming';
     let lastSeasonId = null;
     let lastRun = 0;
@@ -43,7 +44,10 @@
     function isFuture(date) {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        return date >= today;
+
+        const releaseDate = new Date(date);
+        releaseDate.setHours(0, 0, 0, 0);
+        return releaseDate > today;
     }
 
     function normalize(value) {
@@ -86,7 +90,10 @@
             : `/Users/${encodeURIComponent(userId)}/Items?parentId=${encodeURIComponent(season.Id)}&recursive=false&includeItemTypes=Episode&fields=PremiereDate,Overview,IndexNumber,ParentIndexNumber,SortName,LocationType`;
 
         const result = await getJson(apiClient, path);
-        return result.Items || [];
+        return (result.Items || []).map((episode) => ({
+            ...episode,
+            ReleaseDateUpcomingIsMissing: isMissing || episode.LocationType === 'Virtual'
+        }));
     }
 
     async function getEpisodes(apiClient, userId, season) {
@@ -153,63 +160,52 @@
 
     function addDateToRow(row, episode, date) {
         const identity = episodeIdentity(episode);
-        if (row.getAttribute(processedAttribute) === identity) {
+        const label = `Premiered ${formatDate(date)}`;
+        const existing = row.querySelector(`.${pluginClass}`);
+        if (row.getAttribute(processedAttribute) === identity && existing?.textContent === label) {
             return;
         }
 
         row.querySelectorAll(`.${pluginClass}`).forEach((node) => node.remove());
 
+        if (isFuture(date)) {
+            row.removeAttribute(processedAttribute);
+            return;
+        }
+
         const badge = document.createElement('div');
         badge.className = pluginClass;
-        badge.textContent = isFuture(date) ? `Releases ${formatDate(date)}` : `Premiered ${formatDate(date)}`;
+        badge.textContent = label;
 
         const target = findOverviewTarget(row);
         target.insertBefore(badge, target.firstChild);
         row.setAttribute(processedAttribute, identity);
     }
 
-    function renderUpcoming(container, episodes) {
-        container.querySelectorAll(`.${upcomingClass}`).forEach((node) => node.remove());
+    function getHighestEpisodeNumber(episodes) {
+        return episodes
+            .map((episode) => Number(episode.IndexNumber))
+            .filter((number) => Number.isFinite(number) && number > 0)
+            .sort((a, b) => b - a)[0] || null;
+    }
 
-        const upcoming = episodes
-            .map((episode) => ({ episode, date: parseDate(episode.PremiereDate) }))
-            .filter((entry) => entry.date && isFuture(entry.date))
-            .sort((a, b) => a.date - b.date);
+    function renderSeasonSummary(container, episodes) {
+        container.querySelectorAll(`.${seasonSummaryClass}, .${legacyUpcomingClass}`).forEach((node) => node.remove());
 
-        if (!upcoming.length) {
+        const highestAvailableEpisodeNumber = getHighestEpisodeNumber(episodes.filter((episode) => !episode.ReleaseDateUpcomingIsMissing));
+        const lastSeasonEpisodeNumber = getHighestEpisodeNumber(episodes);
+        if (!lastSeasonEpisodeNumber) {
             return;
         }
 
-        const panel = document.createElement('section');
-        panel.className = upcomingClass;
+        const summary = document.createElement('div');
+        summary.className = seasonSummaryClass;
+        summary.textContent = highestAvailableEpisodeNumber
+            ? `Episodes: ${highestAvailableEpisodeNumber} / ${lastSeasonEpisodeNumber}`
+            : `Episodes: 0 / ${lastSeasonEpisodeNumber}`;
 
-        const title = document.createElement('h2');
-        title.textContent = 'Upcoming episodes';
-        panel.appendChild(title);
-
-        const list = document.createElement('div');
-        list.className = `${upcomingClass}-list`;
-
-        upcoming.forEach(({ episode, date }) => {
-            const row = document.createElement('div');
-            row.className = `${upcomingClass}-item`;
-
-            const name = document.createElement('span');
-            name.className = `${upcomingClass}-name`;
-            name.textContent = episode.IndexNumber ? `${episode.IndexNumber}. ${episode.Name}` : episode.Name;
-
-            const release = document.createElement('span');
-            release.className = `${upcomingClass}-date`;
-            release.textContent = formatDate(date);
-
-            row.append(name, release);
-            list.appendChild(row);
-        });
-
-        panel.appendChild(list);
-
-        const insertionPoint = container.querySelector('.itemsContainer, .verticalSection, .detailSectionContent') || container;
-        insertionPoint.insertAdjacentElement('afterend', panel);
+        const insertionPoint = container.querySelector('.detailPagePrimaryContainer, .detailPageContent, .itemDetailsGroup, .detailSectionContent') || container;
+        insertionPoint.insertBefore(summary, insertionPoint.firstChild);
     }
 
     function injectStyles() {
@@ -228,33 +224,13 @@
                 line-height: 1.35;
                 font-weight: 500;
             }
-            .${upcomingClass} {
-                margin: 1.5em 3.3% 0;
-                max-width: 70em;
-            }
-            .${upcomingClass} h2 {
-                margin: 0 0 .75em;
-                font-size: 1.35em;
-                font-weight: 500;
-            }
-            .${upcomingClass}-list {
-                display: grid;
-                gap: .5em;
-            }
-            .${upcomingClass}-item {
-                display: flex;
-                justify-content: space-between;
-                gap: 1em;
-                padding: .75em 0;
-                border-bottom: 1px solid rgba(255, 255, 255, .12);
-            }
-            .${upcomingClass}-name {
-                min-width: 0;
-                overflow-wrap: anywhere;
-            }
-            .${upcomingClass}-date {
-                flex: 0 0 auto;
+            .${seasonSummaryClass} {
+                display: inline-block;
+                margin: 0 0 .8em;
                 color: var(--theme-primary-color, #00a4dc);
+                font-size: .98em;
+                line-height: 1.35;
+                font-weight: 500;
             }
         `;
         document.head.appendChild(style);
@@ -301,7 +277,7 @@
             }
 
             const page = document.querySelector('.page, .view, main, body') || document.body;
-            renderUpcoming(page, episodes);
+            renderSeasonSummary(page, episodes);
             lastSeasonId = season.Id;
         } catch (error) {
             console.warn('Release Date Upcoming failed to update the season page.', error);
