@@ -3,6 +3,8 @@
 
     const pluginClass = 'release-date-upcoming';
     const seasonSummaryClass = 'release-date-upcoming-season-summary';
+    const seasonSummaryCountClass = 'release-date-upcoming-season-summary-count';
+    const seasonSummaryCountdownClass = 'release-date-upcoming-season-summary-countdown';
     const legacyUpcomingClass = 'release-date-upcoming-panel';
     const processedAttribute = 'data-release-date-upcoming';
     let lastSeasonId = null;
@@ -43,6 +45,12 @@
             return null;
         }
 
+        const dateOnly = value.toString().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (dateOnly) {
+            const date = new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]));
+            return Number.isNaN(date.getTime()) ? null : date;
+        }
+
         const date = new Date(value);
         return Number.isNaN(date.getTime()) ? null : date;
     }
@@ -71,6 +79,8 @@
     function isPluginElement(element) {
         return element?.classList?.contains(pluginClass)
             || element?.classList?.contains(seasonSummaryClass)
+            || element?.classList?.contains(seasonSummaryCountClass)
+            || element?.classList?.contains(seasonSummaryCountdownClass)
             || element?.classList?.contains(legacyUpcomingClass);
     }
 
@@ -382,20 +392,76 @@
         };
     }
 
+    function getNextEpisodeDate(progress, sonarrProgress) {
+        const totalEpisodeNumber = Number(progress.totalEpisodeNumber);
+        const episodeAirDates = sonarrProgress?.episodeAirDates || {};
+        if (!Number.isFinite(totalEpisodeNumber) || progress.availableEpisodeNumber >= totalEpisodeNumber) {
+            return null;
+        }
+
+        for (let episodeNumber = progress.availableEpisodeNumber + 1; episodeNumber <= totalEpisodeNumber; episodeNumber += 1) {
+            const date = parseDate(episodeAirDates[episodeNumber]);
+            if (date) {
+                return { episodeNumber, date };
+            }
+        }
+
+        return null;
+    }
+
+    function formatCountdown(date) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const releaseDate = new Date(date);
+        releaseDate.setHours(0, 0, 0, 0);
+
+        const days = Math.round((releaseDate - today) / 86400000);
+        if (days < 0) {
+            return `available since ${formatDate(releaseDate)}`;
+        }
+
+        if (days === 0) {
+            return `today (${formatDate(releaseDate)})`;
+        }
+
+        if (days === 1) {
+            return `tomorrow (${formatDate(releaseDate)})`;
+        }
+
+        return `in ${days} days (${formatDate(releaseDate)})`;
+    }
+
+    function setSeasonSummaryContent(summary, label, nextEpisode) {
+        summary.replaceChildren();
+
+        const count = document.createElement('div');
+        count.className = seasonSummaryCountClass;
+        count.textContent = label;
+        summary.appendChild(count);
+
+        if (!nextEpisode) {
+            return;
+        }
+
+        const countdown = document.createElement('div');
+        countdown.className = seasonSummaryCountdownClass;
+        countdown.textContent = `Next episode ${nextEpisode.episodeNumber}: ${formatCountdown(nextEpisode.date)}`;
+        summary.appendChild(countdown);
+    }
+
     function renderSeasonSummary(container, season, episodes, sonarrProgress) {
         container.querySelectorAll(`.${legacyUpcomingClass}`).forEach((node) => node.remove());
 
         const progress = getSeasonProgress(episodes, sonarrProgress);
         const label = `${progress.availableEpisodeNumber} / ${progress.totalEpisodeNumber}`;
+        const nextEpisode = getNextEpisodeDate(progress, sonarrProgress);
         const existing = container.querySelector(`.${seasonSummaryClass}`);
         if (existing) {
             if (existing.getAttribute('data-season-id') !== season.Id) {
                 existing.remove();
             } else {
-                if (existing.textContent !== label) {
-                    existing.textContent = label;
-                }
-
+                setSeasonSummaryContent(existing, label, nextEpisode);
                 return;
             }
         }
@@ -403,7 +469,7 @@
         const summary = document.createElement('div');
         summary.className = seasonSummaryClass;
         summary.setAttribute('data-season-id', season.Id);
-        summary.textContent = label;
+        setSeasonSummaryContent(summary, label, nextEpisode);
 
         const title = findSeasonTitleElement(container, season);
         title.insertAdjacentElement('afterend', summary);
@@ -412,12 +478,10 @@
     function updateSeasonSummary(container, season, episodes, sonarrProgress) {
         const progress = getSeasonProgress(episodes, sonarrProgress);
         const label = `${progress.availableEpisodeNumber} / ${progress.totalEpisodeNumber}`;
+        const nextEpisode = getNextEpisodeDate(progress, sonarrProgress);
         const existing = container.querySelector(`.${seasonSummaryClass}`);
         if (existing && existing.getAttribute('data-season-id') === season.Id) {
-            if (existing.textContent !== label) {
-                existing.textContent = label;
-            }
-
+            setSeasonSummaryContent(existing, label, nextEpisode);
             return;
         }
 
@@ -447,6 +511,13 @@
                 font-size: .98em;
                 line-height: 1.35;
                 font-weight: 500;
+            }
+            .${seasonSummaryCountdownClass} {
+                margin-top: .15em;
+                color: inherit;
+                font-size: .9em;
+                font-weight: 400;
+                opacity: .86;
             }
         `;
         document.head.appendChild(style);
