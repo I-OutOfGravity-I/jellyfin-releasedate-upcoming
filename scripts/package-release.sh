@@ -4,7 +4,7 @@ set -euo pipefail
 VERSION="${1:-1.0.0.0}"
 TARGET_ABI="${2:-10.11.0.0}"
 CHANGELOG="${3:-Initial release.}"
-GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-outofgravity/jellyfin-releasedate-upcoming}"
+GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-I-OutOfGravity-I/jellyfin-releasedate-upcoming}"
 PROJECT="src/Jellyfin.Plugin.ReleaseDateUpcoming/Jellyfin.Plugin.ReleaseDateUpcoming.csproj"
 OUT_DIR="dist/release-date-upcoming_${VERSION}"
 ZIP_FILE="dist/release-date-upcoming_${VERSION}.zip"
