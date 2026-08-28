@@ -1,0 +1,16 @@
+---
+name: "Release Date Upcoming"
+guid: "ab9f378f-32e9-4f10-a02e-f9ea5d3441b4"
+version: "1.0.0.0"
+targetAbi: "10.11.0.0"
+framework: "net9.0"
+overview: "Shows episode premiere dates and upcoming season episodes in Jellyfin Web."
+description: >
+  Adds premiere date labels to episode rows on season pages and renders an
+  upcoming episodes section when Jellyfin metadata contains future episodes.
+category: "General"
+owner: "outofgravity"
+artifacts:
+- "Jellyfin.Plugin.ReleaseDateUpcoming.dll"
+changelog: >
+  Initial release.
