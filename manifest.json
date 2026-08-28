@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.0.17.0",
+        "changelog": "Show countdown for next official airing when episodes are available early.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/I-OutOfGravity-I/jellyfin-releasedate-upcoming/releases/download/v1.0.17.0/release-date-upcoming_1.0.17.0.zip",
+        "checksum": "a92101ae5ba8467f8a101d96822ddcde",
+        "timestamp": "2026-08-28T11:37:15Z"
+      },
+      {
         "version": "1.0.16.0",
         "changelog": "Show next episode countdown from Sonarr air dates.",
         "targetAbi": "10.11.0.0",

@@ -395,13 +395,22 @@
     function getNextEpisodeDate(progress, sonarrProgress) {
         const totalEpisodeNumber = Number(progress.totalEpisodeNumber);
         const episodeAirDates = sonarrProgress?.episodeAirDates || {};
-        if (!Number.isFinite(totalEpisodeNumber) || progress.availableEpisodeNumber >= totalEpisodeNumber) {
+        if (!Number.isFinite(totalEpisodeNumber)) {
             return null;
         }
 
-        for (let episodeNumber = progress.availableEpisodeNumber + 1; episodeNumber <= totalEpisodeNumber; episodeNumber += 1) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        for (let episodeNumber = 1; episodeNumber <= totalEpisodeNumber; episodeNumber += 1) {
             const date = parseDate(episodeAirDates[episodeNumber]);
-            if (date) {
+            if (!date) {
+                continue;
+            }
+
+            const releaseDate = new Date(date);
+            releaseDate.setHours(0, 0, 0, 0);
+            if (releaseDate >= today) {
                 return { episodeNumber, date };
             }
         }
