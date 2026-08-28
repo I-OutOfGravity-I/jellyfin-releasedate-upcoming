@@ -7,6 +7,10 @@
     const processedAttribute = 'data-release-date-upcoming';
     let lastSeasonId = null;
     let lastRun = 0;
+    let isRunning = false;
+    let rerunRequested = false;
+    let scheduleTimer = null;
+    let followUpTimer = null;
 
     function getApiClient() {
         return window.ApiClient || window.ConnectionManager?.currentApiClient?.();
@@ -53,6 +57,19 @@
         return (value || '').toString().trim().toLowerCase();
     }
 
+    function isPluginElement(element) {
+        return element?.classList?.contains(pluginClass)
+            || element?.classList?.contains(seasonSummaryClass)
+            || element?.classList?.contains(legacyUpcomingClass);
+    }
+
+    function isPluginMutation(mutation) {
+        const nodes = [...mutation.addedNodes, ...mutation.removedNodes]
+            .filter((node) => node.nodeType === Node.ELEMENT_NODE);
+
+        return nodes.length > 0 && nodes.every((node) => isPluginElement(node));
+    }
+
     async function getJson(apiClient, path) {
         if (typeof apiClient.getJSON === 'function') {
             return apiClient.getJSON(path);
@@ -93,13 +110,15 @@
 
         try {
             const progress = await getJson(apiClient, `/ReleaseDateUpcoming/sonarr-progress?${params}`);
-            if (!progress || !Number.isFinite(Number(progress.totalEpisodeNumber))) {
+            const availableEpisodeNumber = Number(progress?.availableEpisodeNumber ?? progress?.AvailableEpisodeNumber) || 0;
+            const totalEpisodeNumber = Number(progress?.totalEpisodeNumber ?? progress?.TotalEpisodeNumber) || 0;
+            if (!progress || !Number.isFinite(totalEpisodeNumber) || totalEpisodeNumber <= 0) {
                 return null;
             }
 
             return {
-                availableEpisodeNumber: Number(progress.availableEpisodeNumber) || 0,
-                totalEpisodeNumber: Number(progress.totalEpisodeNumber) || 0
+                availableEpisodeNumber,
+                totalEpisodeNumber
             };
         } catch {
             return null;
@@ -285,13 +304,22 @@
     }
 
     function renderSeasonSummary(container, season, episodes, sonarrProgress) {
-        container.querySelectorAll(`.${seasonSummaryClass}, .${legacyUpcomingClass}`).forEach((node) => node.remove());
+        container.querySelectorAll(`.${legacyUpcomingClass}`).forEach((node) => node.remove());
 
         const progress = getSeasonProgress(episodes, sonarrProgress);
+        const label = `${progress.availableEpisodeNumber} / ${progress.totalEpisodeNumber}`;
+        const existing = container.querySelector(`.${seasonSummaryClass}`);
+        if (existing) {
+            if (existing.textContent !== label) {
+                existing.textContent = label;
+            }
+
+            return;
+        }
 
         const summary = document.createElement('div');
         summary.className = seasonSummaryClass;
-        summary.textContent = `${progress.availableEpisodeNumber} / ${progress.totalEpisodeNumber}`;
+        summary.textContent = label;
 
         const title = findSeasonTitleElement(container, season);
         title.insertAdjacentElement('afterend', summary);
@@ -326,20 +354,26 @@
     }
 
     async function run() {
+        if (isRunning) {
+            rerunRequested = true;
+            return;
+        }
+
         const now = Date.now();
         if (now - lastRun < 500) {
             return;
         }
 
+        isRunning = true;
         lastRun = now;
-        const apiClient = getApiClient();
-        const userId = getUserId(apiClient);
-        const itemId = getCurrentItemId();
-        if (!apiClient || !userId || !itemId) {
-            return;
-        }
-
         try {
+            const apiClient = getApiClient();
+            const userId = getUserId(apiClient);
+            const itemId = getCurrentItemId();
+            if (!apiClient || !userId || !itemId) {
+                return;
+            }
+
             const season = await getSeason(apiClient, userId, itemId);
             if (!season || season.Type !== 'Season') {
                 return;
@@ -371,12 +405,21 @@
             lastSeasonId = season.Id;
         } catch (error) {
             console.warn('Release Date Upcoming failed to update the season page.', error);
+        } finally {
+            isRunning = false;
+            if (rerunRequested) {
+                rerunRequested = false;
+                scheduleRun();
+            }
         }
     }
 
     function scheduleRun() {
-        window.setTimeout(run, 250);
-        window.setTimeout(run, 1250);
+        window.clearTimeout(scheduleTimer);
+        window.clearTimeout(followUpTimer);
+
+        scheduleTimer = window.setTimeout(run, 250);
+        followUpTimer = window.setTimeout(run, 1250);
     }
 
     window.addEventListener('hashchange', scheduleRun);
@@ -384,7 +427,11 @@
     document.addEventListener('viewshow', scheduleRun);
     document.addEventListener('pageshow', scheduleRun);
 
-    const observer = new MutationObserver(() => {
+    const observer = new MutationObserver((mutations) => {
+        if (mutations.length > 0 && mutations.every(isPluginMutation)) {
+            return;
+        }
+
         const itemId = getCurrentItemId();
         if (itemId) {
             scheduleRun();
