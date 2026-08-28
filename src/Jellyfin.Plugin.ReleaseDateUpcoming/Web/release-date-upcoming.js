@@ -68,10 +68,6 @@
     }
 
     async function getSeason(apiClient, userId, itemId) {
-        if (typeof apiClient.getItem === 'function') {
-            return apiClient.getItem(userId, itemId);
-        }
-
         return getJson(apiClient, `/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(itemId)}?fields=ProviderIds,IndexNumber,SeriesName`);
     }
 
@@ -280,11 +276,11 @@
 
     function getSeasonProgress(episodes, sonarrProgress) {
         const jellyfinAvailableEpisodeNumber = getHighestEpisodeNumber(episodes.filter((episode) => !episode.ReleaseDateUpcomingIsMissing)) || 0;
-        const jellyfinTotalEpisodeNumber = getHighestEpisodeNumber(episodes) || 0;
+        const sonarrTotalEpisodeNumber = Number(sonarrProgress?.totalEpisodeNumber) || 0;
 
         return {
             availableEpisodeNumber: Math.max(jellyfinAvailableEpisodeNumber, sonarrProgress?.availableEpisodeNumber || 0),
-            totalEpisodeNumber: Math.max(jellyfinTotalEpisodeNumber, sonarrProgress?.totalEpisodeNumber || 0)
+            totalEpisodeNumber: sonarrTotalEpisodeNumber > 0 ? sonarrTotalEpisodeNumber.toString() : '?'
         };
     }
 
@@ -292,9 +288,6 @@
         container.querySelectorAll(`.${seasonSummaryClass}, .${legacyUpcomingClass}`).forEach((node) => node.remove());
 
         const progress = getSeasonProgress(episodes, sonarrProgress);
-        if (!progress.totalEpisodeNumber) {
-            return;
-        }
 
         const summary = document.createElement('div');
         summary.className = seasonSummaryClass;

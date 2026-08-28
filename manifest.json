@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.0.7.0",
+        "changelog": "Show unknown season total when Sonarr progress is unavailable.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/I-OutOfGravity-I/jellyfin-releasedate-upcoming/releases/download/v1.0.7.0/release-date-upcoming_1.0.7.0.zip",
+        "checksum": "01de1dc9f29d62579f3983e5b916f20e",
+        "timestamp": "2026-08-28T09:23:30Z"
+      },
+      {
         "version": "1.0.6.0",
         "changelog": "Add optional Sonarr integration for season episode totals.",
         "targetAbi": "10.11.0.0",
