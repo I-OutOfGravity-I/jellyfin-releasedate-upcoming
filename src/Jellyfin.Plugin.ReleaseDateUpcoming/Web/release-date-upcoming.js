@@ -75,32 +75,43 @@
         return getJson(apiClient, `/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(itemId)}`);
     }
 
-    async function getEpisodePage(apiClient, userId, season, isMissing) {
+    async function getEpisodePage(apiClient, userId, season, options) {
+        const isMissing = options?.isMissing === true;
+        const isVirtualUnaired = options?.isVirtualUnaired === true;
         const params = new URLSearchParams({
             userId,
             seasonId: season.Id,
-            IsMissing: isMissing.toString(),
             fields: 'PremiereDate,Overview,IndexNumber,ParentIndexNumber,SortName,LocationType'
         });
+
+        if (isMissing) {
+            params.set('IsMissing', 'true');
+        }
+
+        if (isVirtualUnaired) {
+            params.set('IsVirtualUnaired', 'true');
+        }
 
         const seriesId = season.SeriesId || season.ParentId;
         const path = seriesId
             ? `/Shows/${encodeURIComponent(seriesId)}/Episodes?${params}`
-            : `/Users/${encodeURIComponent(userId)}/Items?parentId=${encodeURIComponent(season.Id)}&recursive=false&includeItemTypes=Episode&fields=PremiereDate,Overview,IndexNumber,ParentIndexNumber,SortName,LocationType`;
+            : `/Users/${encodeURIComponent(userId)}/Items?parentId=${encodeURIComponent(season.Id)}&recursive=false&includeItemTypes=Episode&${params}`;
 
         const result = await getJson(apiClient, path);
         return (result.Items || []).map((episode) => ({
             ...episode,
-            ReleaseDateUpcomingIsMissing: isMissing || episode.LocationType === 'Virtual'
+            ReleaseDateUpcomingIsMissing: isMissing || isVirtualUnaired || episode.LocationType === 'Virtual'
         }));
     }
 
     async function getEpisodes(apiClient, userId, season) {
         const pages = await Promise.allSettled([
-            getEpisodePage(apiClient, userId, season, false),
-            getEpisodePage(apiClient, userId, season, true)
+            getEpisodePage(apiClient, userId, season, {}),
+            getEpisodePage(apiClient, userId, season, { isMissing: true }),
+            getEpisodePage(apiClient, userId, season, { isVirtualUnaired: true })
         ]);
 
+        const byEpisodeNumber = new Map();
         const byId = new Map();
         for (const page of pages) {
             if (page.status !== 'fulfilled') {
@@ -108,11 +119,43 @@
             }
 
             for (const episode of page.value) {
-                byId.set(episode.Id || `${episode.ParentIndexNumber}-${episode.IndexNumber}-${episode.Name}`, episode);
+                const key = getEpisodeMergeKey(episode);
+                const existing = byEpisodeNumber.get(key) || byId.get(episode.Id);
+                const merged = mergeEpisode(existing, episode);
+                byEpisodeNumber.set(key, merged);
+
+                if (episode.Id) {
+                    byId.set(episode.Id, merged);
+                }
             }
         }
 
-        return Array.from(byId.values());
+        return Array.from(byEpisodeNumber.values());
+    }
+
+    function getEpisodeMergeKey(episode) {
+        const episodeNumber = Number(episode.IndexNumber);
+        if (Number.isFinite(episodeNumber) && episodeNumber > 0) {
+            return `${episode.ParentIndexNumber || ''}-${episodeNumber}`;
+        }
+
+        return episode.Id || `${episode.ParentIndexNumber || ''}-${episode.Name || ''}`;
+    }
+
+    function mergeEpisode(existing, episode) {
+        if (!existing) {
+            return episode;
+        }
+
+        return {
+            ...existing,
+            ...episode,
+            Id: existing.ReleaseDateUpcomingIsMissing && episode.Id ? episode.Id : existing.Id,
+            Name: existing.Name || episode.Name,
+            PremiereDate: existing.PremiereDate || episode.PremiereDate,
+            Overview: existing.Overview || episode.Overview,
+            ReleaseDateUpcomingIsMissing: existing.ReleaseDateUpcomingIsMissing && episode.ReleaseDateUpcomingIsMissing
+        };
     }
 
     function findEpisodeRows() {
@@ -140,7 +183,7 @@
         }
 
         const escapedNumber = episode.IndexNumber.toString().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        return new RegExp(`(^|\\D)${escapedNumber}(\\D|$)`).test(text);
+        return new RegExp(`(^|\\n)\\s*${escapedNumber}\\s*[.)]`).test(text);
     }
 
     function episodeIdentity(episode) {
@@ -188,7 +231,19 @@
             .sort((a, b) => b - a)[0] || null;
     }
 
-    function renderSeasonSummary(container, episodes) {
+    function findSeasonTitleElement(container, season) {
+        const topContainer = container.querySelector('.detailPagePrimaryContainer, .detailPageContent, .itemDetailsGroup') || container;
+        const titleCandidates = Array.from(topContainer.querySelectorAll('h1, .itemName, .detailPageName'))
+            .filter((element) => element.offsetParent !== null);
+        const seasonName = normalize(season.Name);
+
+        return titleCandidates.find((element) => normalize(element.textContent) === seasonName)
+            || titleCandidates.find((element) => normalize(element.textContent).startsWith('season '))
+            || titleCandidates[0]
+            || topContainer;
+    }
+
+    function renderSeasonSummary(container, season, episodes) {
         container.querySelectorAll(`.${seasonSummaryClass}, .${legacyUpcomingClass}`).forEach((node) => node.remove());
 
         const highestAvailableEpisodeNumber = getHighestEpisodeNumber(episodes.filter((episode) => !episode.ReleaseDateUpcomingIsMissing));
@@ -200,11 +255,11 @@
         const summary = document.createElement('div');
         summary.className = seasonSummaryClass;
         summary.textContent = highestAvailableEpisodeNumber
-            ? `Episodes: ${highestAvailableEpisodeNumber} / ${lastSeasonEpisodeNumber}`
-            : `Episodes: 0 / ${lastSeasonEpisodeNumber}`;
+            ? `${highestAvailableEpisodeNumber} / ${lastSeasonEpisodeNumber}`
+            : `0 / ${lastSeasonEpisodeNumber}`;
 
-        const insertionPoint = container.querySelector('.detailPagePrimaryContainer, .detailPageContent, .itemDetailsGroup, .detailSectionContent') || container;
-        insertionPoint.insertBefore(summary, insertionPoint.firstChild);
+        const title = findSeasonTitleElement(container, season);
+        title.insertAdjacentElement('afterend', summary);
     }
 
     function injectStyles() {
@@ -224,8 +279,8 @@
                 font-weight: 500;
             }
             .${seasonSummaryClass} {
-                display: inline-block;
-                margin: 0 0 .8em;
+                display: block;
+                margin: .2em 0 .8em;
                 color: var(--theme-primary-color, #00a4dc);
                 font-size: .98em;
                 line-height: 1.35;
@@ -276,7 +331,7 @@
             }
 
             const page = document.querySelector('.page, .view, main, body') || document.body;
-            renderSeasonSummary(page, episodes);
+            renderSeasonSummary(page, season, episodes);
             lastSeasonId = season.Id;
         } catch (error) {
             console.warn('Release Date Upcoming failed to update the season page.', error);

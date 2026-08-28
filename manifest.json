@@ -8,6 +8,22 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.0.5.0",
+        "changelog": "Merge duplicate episode metadata so premiered dates appear consistently.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/I-OutOfGravity-I/jellyfin-releasedate-upcoming/releases/download/v1.0.5.0/release-date-upcoming_1.0.5.0.zip",
+        "checksum": "f1145c6ac62f4cb48d969b443f14db42",
+        "timestamp": "2026-08-28T08:33:34Z"
+      },
+      {
+        "version": "1.0.4.0",
+        "changelog": "Show available episode number over season finale episode number.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/I-OutOfGravity-I/jellyfin-releasedate-upcoming/releases/download/v1.0.4.0/release-date-upcoming_1.0.4.0.zip",
+        "checksum": "8a915bb33686f922b3cde6177075cefa",
+        "timestamp": "2026-08-28T08:30:39Z"
+      },
+      {
         "version": "1.0.3.0",
         "changelog": "Show premiered dates in German dd.mm.yyyy format.",
         "targetAbi": "10.11.0.0",
