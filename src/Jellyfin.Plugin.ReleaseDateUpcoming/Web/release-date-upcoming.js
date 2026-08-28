@@ -27,6 +27,17 @@
         return params.get('id');
     }
 
+    function isCurrentItem(itemId) {
+        return getCurrentItemId() === itemId;
+    }
+
+    function getCurrentPageContainer() {
+        const candidates = Array.from(document.querySelectorAll('.page, .view, main'))
+            .filter((element) => element.offsetParent !== null || element.getClientRects().length > 0);
+
+        return candidates[candidates.length - 1] || document.body;
+    }
+
     function parseDate(value) {
         if (!value) {
             return null;
@@ -68,6 +79,11 @@
             .filter((node) => node.nodeType === Node.ELEMENT_NODE);
 
         return nodes.length > 0 && nodes.every((node) => isPluginElement(node));
+    }
+
+    function removePluginElements(container) {
+        container.querySelectorAll(`.${pluginClass}, .${seasonSummaryClass}, .${legacyUpcomingClass}`).forEach((node) => node.remove());
+        container.querySelectorAll(`[${processedAttribute}]`).forEach((node) => node.removeAttribute(processedAttribute));
     }
 
     async function getJson(apiClient, path) {
@@ -208,8 +224,8 @@
         };
     }
 
-    function findEpisodeRows() {
-        return Array.from(document.querySelectorAll('.listItem, .card, [data-id]'))
+    function findEpisodeRows(container) {
+        return Array.from(container.querySelectorAll('.listItem, .card, [data-id]'))
             .filter((element) => element.offsetParent !== null && element.querySelector('.listItemBody, .cardText, .cardText-first, .itemName, bdi, h3, a'));
     }
 
@@ -310,6 +326,31 @@
         const label = `${progress.availableEpisodeNumber} / ${progress.totalEpisodeNumber}`;
         const existing = container.querySelector(`.${seasonSummaryClass}`);
         if (existing) {
+            if (existing.getAttribute('data-season-id') !== season.Id) {
+                existing.remove();
+            } else {
+                if (existing.textContent !== label) {
+                    existing.textContent = label;
+                }
+
+                return;
+            }
+        }
+
+        const summary = document.createElement('div');
+        summary.className = seasonSummaryClass;
+        summary.setAttribute('data-season-id', season.Id);
+        summary.textContent = label;
+
+        const title = findSeasonTitleElement(container, season);
+        title.insertAdjacentElement('afterend', summary);
+    }
+
+    function updateSeasonSummary(container, season, episodes, sonarrProgress) {
+        const progress = getSeasonProgress(episodes, sonarrProgress);
+        const label = `${progress.availableEpisodeNumber} / ${progress.totalEpisodeNumber}`;
+        const existing = container.querySelector(`.${seasonSummaryClass}`);
+        if (existing && existing.getAttribute('data-season-id') === season.Id) {
             if (existing.textContent !== label) {
                 existing.textContent = label;
             }
@@ -317,12 +358,7 @@
             return;
         }
 
-        const summary = document.createElement('div');
-        summary.className = seasonSummaryClass;
-        summary.textContent = label;
-
-        const title = findSeasonTitleElement(container, season);
-        title.insertAdjacentElement('afterend', summary);
+        renderSeasonSummary(container, season, episodes, sonarrProgress);
     }
 
     function injectStyles() {
@@ -371,22 +407,36 @@
             const userId = getUserId(apiClient);
             const itemId = getCurrentItemId();
             if (!apiClient || !userId || !itemId) {
+                removePluginElements(document);
                 return;
             }
 
             const season = await getSeason(apiClient, userId, itemId);
             if (!season || season.Type !== 'Season') {
+                removePluginElements(document);
+                lastSeasonId = null;
+                return;
+            }
+
+            if (!isCurrentItem(itemId)) {
                 return;
             }
 
             const episodes = await getEpisodes(apiClient, userId, season);
-            if (!episodes.length) {
+            if (!isCurrentItem(itemId)) {
                 return;
             }
 
+            if (!episodes.length) {
+                const page = getCurrentPageContainer();
+                removePluginElements(page);
+                return;
+            }
+
+            const page = getCurrentPageContainer();
             injectStyles();
 
-            const rows = findEpisodeRows();
+            const rows = findEpisodeRows(page);
             for (const episode of episodes) {
                 const date = parseDate(episode.PremiereDate);
                 if (!date) {
@@ -399,9 +449,12 @@
                 }
             }
 
-            const page = document.querySelector('.page, .view, main, body') || document.body;
             const sonarrProgress = await getSonarrProgress(apiClient, season);
-            renderSeasonSummary(page, season, episodes, sonarrProgress);
+            if (!isCurrentItem(itemId)) {
+                return;
+            }
+
+            updateSeasonSummary(page, season, episodes, sonarrProgress);
             lastSeasonId = season.Id;
         } catch (error) {
             console.warn('Release Date Upcoming failed to update the season page.', error);
