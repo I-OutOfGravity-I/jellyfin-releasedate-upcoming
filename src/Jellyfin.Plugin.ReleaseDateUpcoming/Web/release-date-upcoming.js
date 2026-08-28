@@ -274,14 +274,19 @@
         return normalize(row.innerText || row.textContent);
     }
 
+    function rowTitleText(row) {
+        const title = row.querySelector('.itemName, .cardText-first, bdi, h3, a');
+        return normalize(title?.textContent);
+    }
+
     function matchesEpisode(row, episode) {
         if (episode.Id && row.getAttribute('data-id') === episode.Id) {
             return true;
         }
 
-        const text = rowText(row);
+        const title = rowTitleText(row);
         const name = normalize(episode.Name);
-        if (name && text.includes(name)) {
+        if (name && title && (title === name || title.includes(name))) {
             return true;
         }
 
@@ -289,8 +294,9 @@
             return false;
         }
 
+        const text = rowText(row);
         const escapedNumber = episode.IndexNumber.toString().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        return new RegExp(`(^|\\n)\\s*${escapedNumber}\\s*[.)]`).test(text);
+        return new RegExp(`(^|\\n)\\s*${escapedNumber}\\.\\s+\\S`).test(text);
     }
 
     function episodeIdentity(episode) {
@@ -500,15 +506,17 @@
             injectStyles();
 
             const rows = findEpisodeRows(page);
+            const matchedRows = new Set();
             for (const episode of enrichedEpisodes) {
                 const date = parseDate(episode.PremiereDate);
                 if (!date) {
                     continue;
                 }
 
-                const row = rows.find((candidate) => matchesEpisode(candidate, episode));
+                const row = rows.find((candidate) => !matchedRows.has(candidate) && matchesEpisode(candidate, episode));
                 if (row) {
                     addDateToRow(row, episode, date);
+                    matchedRows.add(row);
                 }
             }
 
