@@ -33,11 +33,10 @@
     }
 
     function formatDate(date) {
-        return new Intl.DateTimeFormat(undefined, {
-            weekday: 'short',
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric'
+        return new Intl.DateTimeFormat('de-DE', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
         }).format(date);
     }
 
