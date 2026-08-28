@@ -8,6 +8,22 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.0.14.0",
+        "changelog": "Prefer Sonarr air dates for premiered episode labels.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/I-OutOfGravity-I/jellyfin-releasedate-upcoming/releases/download/v1.0.14.0/release-date-upcoming_1.0.14.0.zip",
+        "checksum": "d34e650cbddbf6ad0ef1c212f3da165f",
+        "timestamp": "2026-08-28T11:14:49Z"
+      },
+      {
+        "version": "1.0.13.0",
+        "changelog": "Use Sonarr air dates when Jellyfin episode premiere dates are missing.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/I-OutOfGravity-I/jellyfin-releasedate-upcoming/releases/download/v1.0.13.0/release-date-upcoming_1.0.13.0.zip",
+        "checksum": "acf3300171f08dd0d28ec2a4ab687b1a",
+        "timestamp": "2026-08-28T11:11:02Z"
+      },
+      {
         "version": "1.0.12.0",
         "changelog": "Parse TVDB IDs from Jellyfin folder names for Sonarr matching.",
         "targetAbi": "10.11.0.0",

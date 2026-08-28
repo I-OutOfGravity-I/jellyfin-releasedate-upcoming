@@ -140,7 +140,11 @@ public class ScriptController : ControllerBase
                 .Max(),
             TotalEpisodeNumber = seasonEpisodes
                 .Select(episode => episode.EpisodeNumber)
-                .Max()
+                .Max(),
+            EpisodeAirDates = seasonEpisodes
+                .Where(episode => !string.IsNullOrWhiteSpace(episode.AirDate))
+                .GroupBy(episode => episode.EpisodeNumber)
+                .ToDictionary(group => group.Key, group => group.First().AirDate!)
         };
     }
 
@@ -224,6 +228,10 @@ public class ScriptController : ControllerBase
             .Select(episode => episode.EpisodeNumber)
             .DefaultIfEmpty(0)
             .Max();
+        result.EpisodeAirDates = seasonEpisodes
+            .Where(episode => !string.IsNullOrWhiteSpace(episode.AirDate))
+            .GroupBy(episode => episode.EpisodeNumber)
+            .ToDictionary(group => group.Key, group => group.First().AirDate!);
 
         return result;
     }
@@ -406,6 +414,11 @@ public sealed class SonarrProgressDto
     /// Gets or sets the highest episode number Sonarr knows for the season.
     /// </summary>
     public int TotalEpisodeNumber { get; set; }
+
+    /// <summary>
+    /// Gets or sets Sonarr air dates by episode number.
+    /// </summary>
+    public Dictionary<int, string> EpisodeAirDates { get; set; } = [];
 }
 
 /// <summary>
@@ -482,6 +495,11 @@ public sealed class SonarrDebugDto
     /// Gets or sets the highest total episode number.
     /// </summary>
     public int TotalEpisodeNumber { get; set; }
+
+    /// <summary>
+    /// Gets or sets Sonarr air dates by episode number.
+    /// </summary>
+    public Dictionary<int, string> EpisodeAirDates { get; set; } = [];
 }
 
 /// <summary>
@@ -562,6 +580,8 @@ internal sealed class SonarrEpisodeDto
     public int EpisodeNumber { get; set; }
 
     public bool HasFile { get; set; }
+
+    public string? AirDate { get; set; }
 
     [JsonPropertyName("episodeFile")]
     public object? EpisodeFile { get; set; }

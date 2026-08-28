@@ -167,13 +167,15 @@
             const progress = await getJson(apiClient, `/ReleaseDateUpcoming/sonarr-progress?${params}`);
             const availableEpisodeNumber = Number(progress?.availableEpisodeNumber ?? progress?.AvailableEpisodeNumber) || 0;
             const totalEpisodeNumber = Number(progress?.totalEpisodeNumber ?? progress?.TotalEpisodeNumber) || 0;
+            const episodeAirDates = progress?.episodeAirDates ?? progress?.EpisodeAirDates ?? {};
             if (!progress || !Number.isFinite(totalEpisodeNumber) || totalEpisodeNumber <= 0) {
                 return null;
             }
 
             return {
                 availableEpisodeNumber,
-                totalEpisodeNumber
+                totalEpisodeNumber,
+                episodeAirDates
             };
         } catch {
             return null;
@@ -336,6 +338,22 @@
             .sort((a, b) => b - a)[0] || null;
     }
 
+    function enrichEpisodesWithSonarrDates(episodes, sonarrProgress) {
+        const episodeAirDates = sonarrProgress?.episodeAirDates || {};
+        return episodes.map((episode) => {
+            const episodeNumber = Number(episode.IndexNumber);
+            const airDate = Number.isFinite(episodeNumber) ? episodeAirDates[episodeNumber] : null;
+            if (!airDate) {
+                return episode;
+            }
+
+            return {
+                ...episode,
+                PremiereDate: airDate
+            };
+        });
+    }
+
     function findSeasonTitleElement(container, season) {
         const topContainer = container.querySelector('.detailPagePrimaryContainer, .detailPageContent, .itemDetailsGroup') || container;
         const titleCandidates = Array.from(topContainer.querySelectorAll('h1, .itemName, .detailPageName'))
@@ -472,11 +490,17 @@
                 return;
             }
 
+            const sonarrProgress = await getSonarrProgress(apiClient, userId, season);
+            if (!isCurrentItem(itemId)) {
+                return;
+            }
+
+            const enrichedEpisodes = enrichEpisodesWithSonarrDates(episodes, sonarrProgress);
             const page = getCurrentPageContainer();
             injectStyles();
 
             const rows = findEpisodeRows(page);
-            for (const episode of episodes) {
+            for (const episode of enrichedEpisodes) {
                 const date = parseDate(episode.PremiereDate);
                 if (!date) {
                     continue;
@@ -488,12 +512,7 @@
                 }
             }
 
-            const sonarrProgress = await getSonarrProgress(apiClient, userId, season);
-            if (!isCurrentItem(itemId)) {
-                return;
-            }
-
-            updateSeasonSummary(page, season, episodes, sonarrProgress);
+            updateSeasonSummary(page, season, enrichedEpisodes, sonarrProgress);
             lastSeasonId = season.Id;
         } catch (error) {
             console.warn('Release Date Upcoming failed to update the season page.', error);
