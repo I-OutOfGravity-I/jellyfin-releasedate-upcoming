@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Release Date Upcoming</title>
+</head>
+<body>
+    <div id="ReleaseDateUpcomingConfigPage" data-role="page" class="page type-interior pluginConfigurationPage">
+        <div data-role="content">
+            <div class="content-primary">
+                <form id="ReleaseDateUpcomingConfigForm">
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="ReleaseDateUpcomingSonarrBaseUrl">Sonarr URL</label>
+                        <input is="emby-input" id="ReleaseDateUpcomingSonarrBaseUrl" name="ReleaseDateUpcomingSonarrBaseUrl" type="url" />
+                        <div class="fieldDescription">Example: http://192.168.2.222:8989</div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="ReleaseDateUpcomingSonarrApiKey">Sonarr API key</label>
+                        <input is="emby-input" id="ReleaseDateUpcomingSonarrApiKey" name="ReleaseDateUpcomingSonarrApiKey" type="password" autocomplete="off" />
+                        <div class="fieldDescription">Leave unchanged to keep the saved key.</div>
+                    </div>
+                    <button is="emby-button" type="submit" class="raised button-submit block">
+                        <span>Save</span>
+                    </button>
+                </form>
+            </div>
+        </div>
+        <script type="text/javascript">
+            (() => {
+                const page = document.querySelector('#ReleaseDateUpcomingConfigPage');
+                const form = page.querySelector('#ReleaseDateUpcomingConfigForm');
+                const baseUrlInput = page.querySelector('#ReleaseDateUpcomingSonarrBaseUrl');
+                const apiKeyInput = page.querySelector('#ReleaseDateUpcomingSonarrApiKey');
+
+                page.addEventListener('pageshow', async () => {
+                    Dashboard.showLoadingMsg();
+                    try {
+                        const config = await ApiClient.getJSON(ApiClient.getUrl('ReleaseDateUpcoming/config'));
+                        baseUrlInput.value = config.sonarrBaseUrl || '';
+                        apiKeyInput.placeholder = config.hasSonarrApiKey ? 'Saved' : '';
+                    } finally {
+                        Dashboard.hideLoadingMsg();
+                    }
+                });
+
+                form.addEventListener('submit', async (event) => {
+                    event.preventDefault();
+                    Dashboard.showLoadingMsg();
+
+                    try {
+                        await ApiClient.ajax({
+                            type: 'POST',
+                            url: ApiClient.getUrl('ReleaseDateUpcoming/config'),
+                            data: JSON.stringify({
+                                sonarrBaseUrl: baseUrlInput.value,
+                                sonarrApiKey: apiKeyInput.value
+                            }),
+                            contentType: 'application/json'
+                        });
+
+                        apiKeyInput.value = '';
+                        Dashboard.processPluginConfigurationUpdateResult();
+                    } finally {
+                        Dashboard.hideLoadingMsg();
+                    }
+                });
+            })();
+        </script>
+    </div>
+</body>
+</html>

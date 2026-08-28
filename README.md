@@ -7,6 +7,8 @@ On season detail pages it:
 - shows each episode's `PremiereDate` in the episode list
 - shows the highest available episode number over the last known season episode number near the top of the page
 
+The season progress uses Jellyfin data by default. Configure Sonarr in the plugin settings to use Sonarr's episode list for the season total, which helps with future episodes Jellyfin has not imported yet.
+
 ## Build
 
 Install the .NET SDK version used by your Jellyfin server/plugin target, then run:

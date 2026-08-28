@@ -3,6 +3,7 @@ using System.Text;
 using Jellyfin.Plugin.ReleaseDateUpcoming.Configuration;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
+using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
 using Microsoft.Extensions.Logging;
 
@@ -11,7 +12,7 @@ namespace Jellyfin.Plugin.ReleaseDateUpcoming;
 /// <summary>
 /// Main plugin entry point.
 /// </summary>
-public sealed class Plugin : BasePlugin<PluginConfiguration>
+public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
     private const string InjectionMarker = "Jellyfin.Plugin.ReleaseDateUpcoming";
     private const string ScriptPath = "../ReleaseDateUpcoming/script.js";
@@ -47,6 +48,16 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>
 
     /// <inheritdoc />
     public override string Description => "Shows episode premiere dates and season episode progress on season pages.";
+
+    /// <inheritdoc />
+    public IEnumerable<PluginPageInfo> GetPages()
+    {
+        yield return new PluginPageInfo
+        {
+            Name = "ReleaseDateUpcoming",
+            EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.html"
+        };
+    }
 
     private void TryPatchIndexHtml()
     {

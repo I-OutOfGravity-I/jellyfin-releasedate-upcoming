@@ -19,5 +19,6 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Web\release-date-upcoming.js" />
+    <EmbeddedResource Include="Configuration\configPage.html" />
   </ItemGroup>
 </Project>

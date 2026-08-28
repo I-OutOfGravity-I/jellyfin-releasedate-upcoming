@@ -72,7 +72,42 @@
             return apiClient.getItem(userId, itemId);
         }
 
-        return getJson(apiClient, `/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(itemId)}`);
+        return getJson(apiClient, `/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(itemId)}?fields=ProviderIds,IndexNumber,SeriesName`);
+    }
+
+    async function getSonarrProgress(apiClient, season) {
+        const seriesName = season.SeriesName || season.Series || season.SeriesTitle;
+        const seasonNumber = Number(season.IndexNumber);
+        if (!Number.isFinite(seasonNumber) || seasonNumber < 0) {
+            return null;
+        }
+
+        const tvdbId = Number(season.ProviderIds?.Tvdb || season.ProviderIds?.TVDB || season.ProviderIds?.tvdb);
+        const params = new URLSearchParams({
+            seasonNumber: seasonNumber.toString()
+        });
+
+        if (seriesName) {
+            params.set('seriesName', seriesName);
+        }
+
+        if (Number.isFinite(tvdbId) && tvdbId > 0) {
+            params.set('tvdbId', tvdbId.toString());
+        }
+
+        try {
+            const progress = await getJson(apiClient, `/ReleaseDateUpcoming/sonarr-progress?${params}`);
+            if (!progress || !Number.isFinite(Number(progress.totalEpisodeNumber))) {
+                return null;
+            }
+
+            return {
+                availableEpisodeNumber: Number(progress.availableEpisodeNumber) || 0,
+                totalEpisodeNumber: Number(progress.totalEpisodeNumber) || 0
+            };
+        } catch {
+            return null;
+        }
     }
 
     async function getEpisodePage(apiClient, userId, season, options) {
@@ -243,20 +278,27 @@
             || topContainer;
     }
 
-    function renderSeasonSummary(container, season, episodes) {
+    function getSeasonProgress(episodes, sonarrProgress) {
+        const jellyfinAvailableEpisodeNumber = getHighestEpisodeNumber(episodes.filter((episode) => !episode.ReleaseDateUpcomingIsMissing)) || 0;
+        const jellyfinTotalEpisodeNumber = getHighestEpisodeNumber(episodes) || 0;
+
+        return {
+            availableEpisodeNumber: Math.max(jellyfinAvailableEpisodeNumber, sonarrProgress?.availableEpisodeNumber || 0),
+            totalEpisodeNumber: Math.max(jellyfinTotalEpisodeNumber, sonarrProgress?.totalEpisodeNumber || 0)
+        };
+    }
+
+    function renderSeasonSummary(container, season, episodes, sonarrProgress) {
         container.querySelectorAll(`.${seasonSummaryClass}, .${legacyUpcomingClass}`).forEach((node) => node.remove());
 
-        const highestAvailableEpisodeNumber = getHighestEpisodeNumber(episodes.filter((episode) => !episode.ReleaseDateUpcomingIsMissing));
-        const lastSeasonEpisodeNumber = getHighestEpisodeNumber(episodes);
-        if (!lastSeasonEpisodeNumber) {
+        const progress = getSeasonProgress(episodes, sonarrProgress);
+        if (!progress.totalEpisodeNumber) {
             return;
         }
 
         const summary = document.createElement('div');
         summary.className = seasonSummaryClass;
-        summary.textContent = highestAvailableEpisodeNumber
-            ? `${highestAvailableEpisodeNumber} / ${lastSeasonEpisodeNumber}`
-            : `0 / ${lastSeasonEpisodeNumber}`;
+        summary.textContent = `${progress.availableEpisodeNumber} / ${progress.totalEpisodeNumber}`;
 
         const title = findSeasonTitleElement(container, season);
         title.insertAdjacentElement('afterend', summary);
@@ -331,7 +373,8 @@
             }
 
             const page = document.querySelector('.page, .view, main, body') || document.body;
-            renderSeasonSummary(page, season, episodes);
+            const sonarrProgress = await getSonarrProgress(apiClient, season);
+            renderSeasonSummary(page, season, episodes, sonarrProgress);
             lastSeasonId = season.Id;
         } catch (error) {
             console.warn('Release Date Upcoming failed to update the season page.', error);
