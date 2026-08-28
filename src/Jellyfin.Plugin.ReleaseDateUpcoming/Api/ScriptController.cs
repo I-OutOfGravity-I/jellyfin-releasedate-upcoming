@@ -83,6 +83,7 @@ public class ScriptController : ControllerBase
     /// <param name="tmdbId">The optional TMDB series ID.</param>
     /// <param name="imdbId">The optional IMDb series ID.</param>
     /// <param name="year">The optional series production year.</param>
+    /// <param name="path">The optional Jellyfin series path.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The Sonarr episode progress, when configured and matched.</returns>
     [HttpGet("sonarr-progress")]
@@ -93,6 +94,7 @@ public class ScriptController : ControllerBase
         [FromQuery] int? tmdbId,
         [FromQuery] string? imdbId,
         [FromQuery] int? year,
+        [FromQuery] string? path,
         CancellationToken cancellationToken)
     {
         var config = Plugin.Instance?.Configuration;
@@ -109,8 +111,10 @@ public class ScriptController : ControllerBase
             return NoContent();
         }
 
+        tvdbId ??= GetTvdbIdFromPath(path);
         var series = await GetSonarrJsonAsync<List<SonarrSeriesDto>>(baseUri, "api/v3/series", config.SonarrApiKey, cancellationToken).ConfigureAwait(false);
         var matchedSeries = MatchSeries(series, seriesName, tvdbId, tmdbId, imdbId, year);
+        matchedSeries ??= await LookupSonarrSeriesAsync(baseUri, config.SonarrApiKey, series, seriesName, tvdbId, tmdbId, imdbId, year, cancellationToken).ConfigureAwait(false);
         if (matchedSeries is null)
         {
             return NoContent();
@@ -140,6 +144,90 @@ public class ScriptController : ControllerBase
         };
     }
 
+    /// <summary>
+    /// Gets Sonarr matching diagnostics for a Jellyfin season.
+    /// </summary>
+    /// <param name="seriesName">The series name.</param>
+    /// <param name="seasonNumber">The season number.</param>
+    /// <param name="tvdbId">The optional TVDB series ID.</param>
+    /// <param name="tmdbId">The optional TMDB series ID.</param>
+    /// <param name="imdbId">The optional IMDb series ID.</param>
+    /// <param name="year">The optional series production year.</param>
+    /// <param name="path">The optional Jellyfin series path.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>Sonarr matching diagnostics.</returns>
+    [HttpGet("sonarr-debug")]
+    public async Task<ActionResult<SonarrDebugDto>> GetSonarrDebug(
+        [FromQuery] string? seriesName,
+        [FromQuery] int seasonNumber,
+        [FromQuery] int? tvdbId,
+        [FromQuery] int? tmdbId,
+        [FromQuery] string? imdbId,
+        [FromQuery] int? year,
+        [FromQuery] string? path,
+        CancellationToken cancellationToken)
+    {
+        var result = new SonarrDebugDto
+        {
+            RequestedSeriesName = seriesName,
+            RequestedSeasonNumber = seasonNumber,
+            RequestedTvdbId = tvdbId,
+            RequestedTmdbId = tmdbId,
+            RequestedImdbId = imdbId,
+            RequestedYear = year,
+            RequestedPathTvdbId = GetTvdbIdFromPath(path)
+        };
+
+        var config = Plugin.Instance?.Configuration;
+        result.IsConfigured = config is not null
+            && !string.IsNullOrWhiteSpace(config.SonarrBaseUrl)
+            && !string.IsNullOrWhiteSpace(config.SonarrApiKey);
+        if (!result.IsConfigured || config is null || !TryGetSonarrBaseUri(config.SonarrBaseUrl, out var baseUri))
+        {
+            return result;
+        }
+
+        tvdbId ??= result.RequestedPathTvdbId;
+        var series = await GetSonarrJsonAsync<List<SonarrSeriesDto>>(baseUri, "api/v3/series", config.SonarrApiKey, cancellationToken).ConfigureAwait(false);
+        result.LocalTitleMatches = series
+            .Where(item => MatchesTitle(item, Normalize(seriesName)))
+            .Select(SonarrSeriesMatchDto.FromSeries)
+            .ToList();
+
+        var matchedSeries = MatchSeries(series, seriesName, tvdbId, tmdbId, imdbId, year);
+        result.MatchSource = matchedSeries is null ? null : "local-series";
+        if (matchedSeries is null)
+        {
+            matchedSeries = await LookupSonarrSeriesAsync(baseUri, config.SonarrApiKey, series, seriesName, tvdbId, tmdbId, imdbId, year, cancellationToken).ConfigureAwait(false);
+            result.MatchSource = matchedSeries is null ? null : "sonarr-lookup";
+        }
+
+        if (matchedSeries is null)
+        {
+            return result;
+        }
+
+        result.MatchedSeries = SonarrSeriesMatchDto.FromSeries(matchedSeries);
+        var episodesPath = $"api/v3/episode?seriesId={matchedSeries.Id}";
+        var episodes = await GetSonarrJsonAsync<List<SonarrEpisodeDto>>(baseUri, episodesPath, config.SonarrApiKey, cancellationToken).ConfigureAwait(false);
+        var seasonEpisodes = episodes
+            .Where(episode => episode.SeasonNumber == seasonNumber && episode.EpisodeNumber > 0)
+            .ToList();
+
+        result.SeasonEpisodeCount = seasonEpisodes.Count;
+        result.AvailableEpisodeNumber = seasonEpisodes
+            .Where(episode => episode.HasFile || episode.EpisodeFile is not null)
+            .Select(episode => episode.EpisodeNumber)
+            .DefaultIfEmpty(0)
+            .Max();
+        result.TotalEpisodeNumber = seasonEpisodes
+            .Select(episode => episode.EpisodeNumber)
+            .DefaultIfEmpty(0)
+            .Max();
+
+        return result;
+    }
+
     private static bool TryGetSonarrBaseUri(string value, out Uri baseUri)
     {
         if (Uri.TryCreate(value.Trim().TrimEnd('/') + "/", UriKind.Absolute, out baseUri!)
@@ -162,6 +250,33 @@ public class ScriptController : ControllerBase
         response.EnsureSuccessStatusCode();
 
         return await response.Content.ReadFromJsonAsync<T>(cancellationToken).ConfigureAwait(false) ?? throw new InvalidOperationException("Sonarr returned an empty response.");
+    }
+
+    private static async Task<SonarrSeriesDto?> LookupSonarrSeriesAsync(
+        Uri baseUri,
+        string apiKey,
+        IEnumerable<SonarrSeriesDto> existingSeries,
+        string? seriesName,
+        int? tvdbId,
+        int? tmdbId,
+        string? imdbId,
+        int? year,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(seriesName))
+        {
+            return null;
+        }
+
+        var lookupPath = $"api/v3/series/lookup?term={Uri.EscapeDataString(seriesName)}";
+        var lookupResults = await GetSonarrJsonAsync<List<SonarrSeriesDto>>(baseUri, lookupPath, apiKey, cancellationToken).ConfigureAwait(false);
+        var lookupMatch = MatchSeries(lookupResults, seriesName, tvdbId, tmdbId, imdbId, year);
+        if (lookupMatch?.TvdbId is not > 0)
+        {
+            return null;
+        }
+
+        return existingSeries.FirstOrDefault(item => item.TvdbId == lookupMatch.TvdbId);
     }
 
     private static SonarrSeriesDto? MatchSeries(IEnumerable<SonarrSeriesDto> series, string? seriesName, int? tvdbId, int? tmdbId, string? imdbId, int? year)
@@ -201,7 +316,7 @@ public class ScriptController : ControllerBase
         }
 
         var titleMatches = seriesList
-            .Where(item => Normalize(item.Title) == normalizedName)
+            .Where(item => MatchesTitle(item, normalizedName))
             .ToList();
 
         if (year is > 0)
@@ -219,12 +334,29 @@ public class ScriptController : ControllerBase
         return titleMatches.Count == 1 ? titleMatches[0] : null;
     }
 
+    private static bool MatchesTitle(SonarrSeriesDto item, string normalizedName)
+    {
+        return Normalize(item.Title) == normalizedName
+            || item.AlternateTitles.Any(title => Normalize(title.Title) == normalizedName);
+    }
+
     private static string Normalize(string? value)
     {
         return new string((value ?? string.Empty)
             .ToLowerInvariant()
             .Where(char.IsLetterOrDigit)
             .ToArray());
+    }
+
+    private static int? GetTvdbIdFromPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        var match = System.Text.RegularExpressions.Regex.Match(path, @"\{tvdb-(\d+)\}", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return match.Success && int.TryParse(match.Groups[1].Value, out var tvdbId) ? tvdbId : null;
     }
 }
 
@@ -276,6 +408,131 @@ public sealed class SonarrProgressDto
     public int TotalEpisodeNumber { get; set; }
 }
 
+/// <summary>
+/// Sonarr matching diagnostics response.
+/// </summary>
+public sealed class SonarrDebugDto
+{
+    /// <summary>
+    /// Gets or sets a value indicating whether Sonarr is configured.
+    /// </summary>
+    public bool IsConfigured { get; set; }
+
+    /// <summary>
+    /// Gets or sets the requested series name.
+    /// </summary>
+    public string? RequestedSeriesName { get; set; }
+
+    /// <summary>
+    /// Gets or sets the requested season number.
+    /// </summary>
+    public int RequestedSeasonNumber { get; set; }
+
+    /// <summary>
+    /// Gets or sets the requested TVDB ID.
+    /// </summary>
+    public int? RequestedTvdbId { get; set; }
+
+    /// <summary>
+    /// Gets or sets the requested TMDB ID.
+    /// </summary>
+    public int? RequestedTmdbId { get; set; }
+
+    /// <summary>
+    /// Gets or sets the requested IMDb ID.
+    /// </summary>
+    public string? RequestedImdbId { get; set; }
+
+    /// <summary>
+    /// Gets or sets the requested production year.
+    /// </summary>
+    public int? RequestedYear { get; set; }
+
+    /// <summary>
+    /// Gets or sets the TVDB ID parsed from the requested path.
+    /// </summary>
+    public int? RequestedPathTvdbId { get; set; }
+
+    /// <summary>
+    /// Gets or sets the match source.
+    /// </summary>
+    public string? MatchSource { get; set; }
+
+    /// <summary>
+    /// Gets or sets the matched Sonarr series.
+    /// </summary>
+    public SonarrSeriesMatchDto? MatchedSeries { get; set; }
+
+    /// <summary>
+    /// Gets or sets local Sonarr series whose title or alternate title matched the requested name.
+    /// </summary>
+    public List<SonarrSeriesMatchDto> LocalTitleMatches { get; set; } = [];
+
+    /// <summary>
+    /// Gets or sets the number of Sonarr episodes found for the requested season.
+    /// </summary>
+    public int SeasonEpisodeCount { get; set; }
+
+    /// <summary>
+    /// Gets or sets the highest available episode number.
+    /// </summary>
+    public int AvailableEpisodeNumber { get; set; }
+
+    /// <summary>
+    /// Gets or sets the highest total episode number.
+    /// </summary>
+    public int TotalEpisodeNumber { get; set; }
+}
+
+/// <summary>
+/// Sonarr series match details.
+/// </summary>
+public sealed class SonarrSeriesMatchDto
+{
+    /// <summary>
+    /// Gets or sets the Sonarr series ID.
+    /// </summary>
+    public int Id { get; set; }
+
+    /// <summary>
+    /// Gets or sets the Sonarr title.
+    /// </summary>
+    public string? Title { get; set; }
+
+    /// <summary>
+    /// Gets or sets the TVDB ID.
+    /// </summary>
+    public int TvdbId { get; set; }
+
+    /// <summary>
+    /// Gets or sets the TMDB ID.
+    /// </summary>
+    public int? TmdbId { get; set; }
+
+    /// <summary>
+    /// Gets or sets the IMDb ID.
+    /// </summary>
+    public string? ImdbId { get; set; }
+
+    /// <summary>
+    /// Gets or sets the series year.
+    /// </summary>
+    public int? Year { get; set; }
+
+    internal static SonarrSeriesMatchDto FromSeries(SonarrSeriesDto series)
+    {
+        return new SonarrSeriesMatchDto
+        {
+            Id = series.Id,
+            Title = series.Title,
+            TvdbId = series.TvdbId,
+            TmdbId = series.TmdbId,
+            ImdbId = series.ImdbId,
+            Year = series.Year
+        };
+    }
+}
+
 internal sealed class SonarrSeriesDto
 {
     public int Id { get; set; }
@@ -289,6 +546,13 @@ internal sealed class SonarrSeriesDto
     public string? ImdbId { get; set; }
 
     public int? Year { get; set; }
+
+    public List<SonarrAlternateTitleDto> AlternateTitles { get; set; } = [];
+}
+
+internal sealed class SonarrAlternateTitleDto
+{
+    public string? Title { get; set; }
 }
 
 internal sealed class SonarrEpisodeDto

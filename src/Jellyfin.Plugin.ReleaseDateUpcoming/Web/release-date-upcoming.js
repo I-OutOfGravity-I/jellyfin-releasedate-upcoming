@@ -101,7 +101,7 @@
     }
 
     async function getSeason(apiClient, userId, itemId) {
-        return getJson(apiClient, `/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(itemId)}?fields=ProviderIds,IndexNumber,SeriesName,SeriesId,ParentId`);
+        return getJson(apiClient, `/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(itemId)}?fields=ProviderIds,IndexNumber,SeriesName,SeriesId,ParentId,Path`);
     }
 
     async function getSeries(apiClient, userId, season) {
@@ -111,10 +111,15 @@
         }
 
         try {
-            return await getJson(apiClient, `/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(seriesId)}?fields=ProviderIds,ProductionYear`);
+            return await getJson(apiClient, `/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(seriesId)}?fields=ProviderIds,ProductionYear,Path`);
         } catch {
             return null;
         }
+    }
+
+    function getTvdbIdFromPath(path) {
+        const match = (path || '').match(/\{tvdb-(\d+)\}/i);
+        return match ? Number(match[1]) : null;
     }
 
     async function getSonarrProgress(apiClient, userId, season) {
@@ -126,7 +131,7 @@
             return null;
         }
 
-        const tvdbId = Number(providerIds.Tvdb || providerIds.TVDB || providerIds.tvdb);
+        const tvdbId = Number(providerIds.Tvdb || providerIds.TVDB || providerIds.tvdb || getTvdbIdFromPath(series?.Path) || getTvdbIdFromPath(season.Path));
         const tmdbId = Number(providerIds.Tmdb || providerIds.TMDB || providerIds.tmdb);
         const imdbId = providerIds.Imdb || providerIds.IMDB || providerIds.imdb;
         const productionYear = Number(series?.ProductionYear || season.ProductionYear);
@@ -152,6 +157,10 @@
 
         if (Number.isFinite(productionYear) && productionYear > 0) {
             params.set('year', productionYear.toString());
+        }
+
+        if (series?.Path || season.Path) {
+            params.set('path', series?.Path || season.Path);
         }
 
         try {
