@@ -101,17 +101,35 @@
     }
 
     async function getSeason(apiClient, userId, itemId) {
-        return getJson(apiClient, `/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(itemId)}?fields=ProviderIds,IndexNumber,SeriesName`);
+        return getJson(apiClient, `/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(itemId)}?fields=ProviderIds,IndexNumber,SeriesName,SeriesId,ParentId`);
     }
 
-    async function getSonarrProgress(apiClient, season) {
-        const seriesName = season.SeriesName || season.Series || season.SeriesTitle;
+    async function getSeries(apiClient, userId, season) {
+        const seriesId = season.SeriesId || season.ParentId;
+        if (!seriesId) {
+            return null;
+        }
+
+        try {
+            return await getJson(apiClient, `/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(seriesId)}?fields=ProviderIds,ProductionYear`);
+        } catch {
+            return null;
+        }
+    }
+
+    async function getSonarrProgress(apiClient, userId, season) {
+        const series = await getSeries(apiClient, userId, season);
+        const providerIds = series?.ProviderIds || season.ProviderIds || {};
+        const seriesName = series?.Name || season.SeriesName || season.Series || season.SeriesTitle;
         const seasonNumber = Number(season.IndexNumber);
         if (!Number.isFinite(seasonNumber) || seasonNumber < 0) {
             return null;
         }
 
-        const tvdbId = Number(season.ProviderIds?.Tvdb || season.ProviderIds?.TVDB || season.ProviderIds?.tvdb);
+        const tvdbId = Number(providerIds.Tvdb || providerIds.TVDB || providerIds.tvdb);
+        const tmdbId = Number(providerIds.Tmdb || providerIds.TMDB || providerIds.tmdb);
+        const imdbId = providerIds.Imdb || providerIds.IMDB || providerIds.imdb;
+        const productionYear = Number(series?.ProductionYear || season.ProductionYear);
         const params = new URLSearchParams({
             seasonNumber: seasonNumber.toString()
         });
@@ -122,6 +140,18 @@
 
         if (Number.isFinite(tvdbId) && tvdbId > 0) {
             params.set('tvdbId', tvdbId.toString());
+        }
+
+        if (Number.isFinite(tmdbId) && tmdbId > 0) {
+            params.set('tmdbId', tmdbId.toString());
+        }
+
+        if (imdbId) {
+            params.set('imdbId', imdbId.toString());
+        }
+
+        if (Number.isFinite(productionYear) && productionYear > 0) {
+            params.set('year', productionYear.toString());
         }
 
         try {
@@ -449,7 +479,7 @@
                 }
             }
 
-            const sonarrProgress = await getSonarrProgress(apiClient, season);
+            const sonarrProgress = await getSonarrProgress(apiClient, userId, season);
             if (!isCurrentItem(itemId)) {
                 return;
             }

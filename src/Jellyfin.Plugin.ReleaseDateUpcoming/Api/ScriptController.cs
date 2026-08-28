@@ -80,6 +80,9 @@ public class ScriptController : ControllerBase
     /// <param name="seriesName">The series name.</param>
     /// <param name="seasonNumber">The season number.</param>
     /// <param name="tvdbId">The optional TVDB series ID.</param>
+    /// <param name="tmdbId">The optional TMDB series ID.</param>
+    /// <param name="imdbId">The optional IMDb series ID.</param>
+    /// <param name="year">The optional series production year.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The Sonarr episode progress, when configured and matched.</returns>
     [HttpGet("sonarr-progress")]
@@ -87,6 +90,9 @@ public class ScriptController : ControllerBase
         [FromQuery] string? seriesName,
         [FromQuery] int seasonNumber,
         [FromQuery] int? tvdbId,
+        [FromQuery] int? tmdbId,
+        [FromQuery] string? imdbId,
+        [FromQuery] int? year,
         CancellationToken cancellationToken)
     {
         var config = Plugin.Instance?.Configuration;
@@ -104,7 +110,7 @@ public class ScriptController : ControllerBase
         }
 
         var series = await GetSonarrJsonAsync<List<SonarrSeriesDto>>(baseUri, "api/v3/series", config.SonarrApiKey, cancellationToken).ConfigureAwait(false);
-        var matchedSeries = MatchSeries(series, seriesName, tvdbId);
+        var matchedSeries = MatchSeries(series, seriesName, tvdbId, tmdbId, imdbId, year);
         if (matchedSeries is null)
         {
             return NoContent();
@@ -158,21 +164,59 @@ public class ScriptController : ControllerBase
         return await response.Content.ReadFromJsonAsync<T>(cancellationToken).ConfigureAwait(false) ?? throw new InvalidOperationException("Sonarr returned an empty response.");
     }
 
-    private static SonarrSeriesDto? MatchSeries(IEnumerable<SonarrSeriesDto> series, string? seriesName, int? tvdbId)
+    private static SonarrSeriesDto? MatchSeries(IEnumerable<SonarrSeriesDto> series, string? seriesName, int? tvdbId, int? tmdbId, string? imdbId, int? year)
     {
+        var seriesList = series.ToList();
         if (tvdbId is > 0)
         {
-            var tvdbMatch = series.FirstOrDefault(item => item.TvdbId == tvdbId.Value);
+            var tvdbMatch = seriesList.FirstOrDefault(item => item.TvdbId == tvdbId.Value);
             if (tvdbMatch is not null)
             {
                 return tvdbMatch;
             }
         }
 
+        if (tmdbId is > 0)
+        {
+            var tmdbMatch = seriesList.FirstOrDefault(item => item.TmdbId == tmdbId.Value);
+            if (tmdbMatch is not null)
+            {
+                return tmdbMatch;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(imdbId))
+        {
+            var imdbMatch = seriesList.FirstOrDefault(item => string.Equals(item.ImdbId, imdbId, StringComparison.OrdinalIgnoreCase));
+            if (imdbMatch is not null)
+            {
+                return imdbMatch;
+            }
+        }
+
         var normalizedName = Normalize(seriesName);
-        return string.IsNullOrEmpty(normalizedName)
-            ? null
-            : series.FirstOrDefault(item => Normalize(item.Title) == normalizedName);
+        if (string.IsNullOrEmpty(normalizedName))
+        {
+            return null;
+        }
+
+        var titleMatches = seriesList
+            .Where(item => Normalize(item.Title) == normalizedName)
+            .ToList();
+
+        if (year is > 0)
+        {
+            var yearMatches = titleMatches
+                .Where(item => item.Year == year.Value)
+                .ToList();
+
+            if (yearMatches.Count == 1)
+            {
+                return yearMatches[0];
+            }
+        }
+
+        return titleMatches.Count == 1 ? titleMatches[0] : null;
     }
 
     private static string Normalize(string? value)
@@ -239,6 +283,12 @@ internal sealed class SonarrSeriesDto
     public string? Title { get; set; }
 
     public int TvdbId { get; set; }
+
+    public int? TmdbId { get; set; }
+
+    public string? ImdbId { get; set; }
+
+    public int? Year { get; set; }
 }
 
 internal sealed class SonarrEpisodeDto
